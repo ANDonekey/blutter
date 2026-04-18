@@ -1,0 +1,89 @@
+name: Build Blutter Windows Dart 3.5.4
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - main
+    paths:
+      - ".github/workflows/build-windows-dart35.yml"
+      - "blutter.py"
+      - "dartvm_fetch_build.py"
+      - "extract_dart_info.py"
+      - "scripts/**"
+      - "blutter/**"
+
+jobs:
+  build:
+    runs-on: windows-latest
+    env:
+      DART_VERSION: "3.5.4"
+      TARGET_OS: "android"
+      TARGET_ARCH: "arm64"
+      SNAPSHOT_HASH: "80a49c7111088100a233b2ae788e1f48"
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+
+      - name: Setup MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: amd64
+
+      - name: Install Python dependencies
+        shell: pwsh
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyelftools requests
+
+      - name: Prepare Windows native dependencies
+        shell: pwsh
+        run: |
+          python scripts/init_env_win.py
+
+      - name: Build Dart VM package
+        shell: pwsh
+        run: |
+          python dartvm_fetch_build.py $env:DART_VERSION $env:TARGET_OS $env:TARGET_ARCH $env:SNAPSHOT_HASH
+
+      - name: Build blutter executable
+        shell: pwsh
+        run: |
+          @'
+          import os
+          from dartvm_fetch_build import DartLibInfo
+          from blutter import BlutterInput, cmake_blutter
+
+          info = DartLibInfo(
+              os.environ["DART_VERSION"],
+              os.environ["TARGET_OS"],
+              os.environ["TARGET_ARCH"],
+              has_compressed_ptrs=True,
+              snapshot_hash=os.environ["SNAPSHOT_HASH"],
+          )
+          output_dir = os.path.join(os.getcwd(), "out")
+          os.makedirs(output_dir, exist_ok=True)
+          build_input = BlutterInput("dummy", info, output_dir, True, False, False)
+          cmake_blutter(build_input)
+          print(build_input.blutter_file)
+          '@ | python -
+
+      - name: List built files
+        shell: pwsh
+        run: |
+          Get-ChildItem bin | Format-Table Name,Length,LastWriteTime -AutoSize
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: blutter-windows-dart-3.5.4
+          path: |
+            bin/*.exe
+            bin/*.dll
+            packages/lib/*
+          if-no-files-found: error
