@@ -5,6 +5,7 @@ on:
   push:
     branches:
       - main
+      - codex/build-windows-dart35
     paths:
       - ".github/workflows/build-windows-dart35.yml"
       - "blutter.py"
